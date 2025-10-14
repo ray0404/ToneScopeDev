@@ -1,10 +1,10 @@
-modules = ["python-3.11"]
+modules = ["nodejs-20", "python-3.11", "web"]
 [agent]
 expertMode = true
 
 [nix]
 channel = "stable-25_05"
-packages = ["ffmpeg-full", "libsndfile", "libxcrypt", "pkg-config", "xsimd"]
+packages = ["ffmpeg-full", "libsndfile", "libxcrypt", "openssl", "pkg-config", "postgresql", "xsimd"]
 
 [workflows]
 runButton = "Project"
@@ -16,18 +16,15 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "ToneScope Server"
+args = "Start application"
 
 [[workflows.workflow]]
-name = "ToneScope Server"
+name = "Start application"
 author = "agent"
-
-[workflows.workflow.metadata]
-outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "gunicorn --bind=0.0.0.0:5000 --reuse-port --timeout 300 --workers 2 main:app"
+args = "gunicorn --bind 0.0.0.0:5000 --reuse-port --reload main:app"
 waitForPort = 5000
 
 [[ports]]
@@ -35,9 +32,13 @@ localPort = 5000
 externalPort = 80
 
 [[ports]]
+localPort = 35019
+externalPort = 3001
+
+[[ports]]
 localPort = 46391
 externalPort = 3000
 
 [deployment]
 deploymentTarget = "autoscale"
-run = ["gunicorn", "--bind=0.0.0.0:5000", "--reuse-port", "--timeout", "300", "main:app"]
+run = ["gunicorn", "--bind", "0.0.0.0:5000", "main:app"]
