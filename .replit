@@ -4,7 +4,7 @@ expertMode = true
 
 [nix]
 channel = "stable-25_05"
-packages = ["ffmpeg-full", "libsndfile", "libxcrypt", "openssl", "pkg-config", "postgresql", "xsimd"]
+packages = ["ffmpeg-full", "iana-etc", "libsndfile", "libxcrypt", "openssl", "pkg-config", "postgresql", "xsimd"]
 
 [workflows]
 runButton = "Project"
@@ -24,25 +24,28 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "gunicorn --bind 0.0.0.0:5000 --reuse-port --reload main:app"
+args = "gunicorn --worker-class eventlet --bind 0.0.0.0:5000 --reuse-port --reload main:app"
 waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
 
 [[ports]]
 localPort = 5000
 externalPort = 80
 
 [[ports]]
-localPort = 35019
-externalPort = 3001
-
-[[ports]]
 localPort = 41839
 externalPort = 3002
+
+[[ports]]
+localPort = 42149
+externalPort = 3001
 
 [[ports]]
 localPort = 46391
 externalPort = 3000
 
 [deployment]
-deploymentTarget = "autoscale"
-run = ["gunicorn", "--bind", "0.0.0.0:5000", "main:app"]
+deploymentTarget = "vm"
+run = ["gunicorn", "--worker-class", "eventlet", "--bind", "0.0.0.0:5000", "--reuse-port"]
