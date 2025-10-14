@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ToneScope - Audio Analysis & Mastering Tool</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/wavesurfer.js@7"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎵 ToneScope</h1>
+            <p class="subtitle">Professional Audio Analysis & Mastering Tool for Music Producers</p>
+        </header>
+
+        <div class="upload-section">
+            <h2>Upload Audio Files</h2>
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">📁</div>
+                <p>Drag & drop audio files here or click to browse</p>
+                <input type="file" id="fileInput" multiple accept=".wav,.mp3,.flac,.aiff,.ogg,.m4a" style="display: none;">
+                <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Select Files</button>
+            </div>
+            <div id="fileList" class="file-list"></div>
+            <div class="action-buttons">
+                <button class="btn btn-success" id="analyzeBtn" disabled>Analyze Tracks</button>
+                <button class="btn btn-danger" id="clearBtn">Clear All Files</button>
+            </div>
+        </div>
+
+        <div id="analysisResults" style="display: none;">
+            <div class="module-section">
+                <h2>Module 1: Analyzer</h2>
+                
+                <div class="analysis-panel">
+                    <h3>Tonal Balance - Frequency Spectrum</h3>
+                    <p class="description">Overlaid frequency spectrum of all tracks showing tonal balance across the album</p>
+                    <canvas id="frequencyChart"></canvas>
+                </div>
+
+                <div class="analysis-panel">
+                    <h3>Dynamic Range Analysis</h3>
+                    <p class="description">LUFS, True Peak, and Crest Factor measurements for each track</p>
+                    <div class="table-container">
+                        <table id="dynamicRangeTable">
+                            <thead>
+                                <tr>
+                                    <th>Track</th>
+                                    <th>LUFS</th>
+                                    <th>True Peak (dB)</th>
+                                    <th>Crest Factor (dB)</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="analysis-panel">
+                    <h3>Stereo Image Analysis</h3>
+                    <p class="description">Stereo width and correlation analysis for each track</p>
+                    <div class="stereo-grid" id="stereoGrid"></div>
+                </div>
+            </div>
+
+            <div class="module-section">
+                <h2>Module 2: Tonal Palette</h2>
+                
+                <div class="analysis-panel">
+                    <h3>Select Track for Processing</h3>
+                    <select id="trackSelector" class="track-selector">
+                        <option value="">Choose a track...</option>
+                    </select>
+                </div>
+
+                <div class="analysis-panel">
+                    <h3>One-Click Tonal Presets</h3>
+                    <p class="description">Apply mastering presets for instant A/B comparison</p>
+                    <div class="preset-buttons">
+                        <button class="btn btn-preset" data-preset="brighter">✨ Brighter</button>
+                        <button class="btn btn-preset" data-preset="darker">🌙 Darker</button>
+                        <button class="btn btn-preset" data-preset="vintage_warmth">🔥 Vintage Warmth</button>
+                        <button class="btn btn-preset" data-preset="modern_punch">⚡ Modern Punch</button>
+                    </div>
+                </div>
+
+                <div class="analysis-panel">
+                    <h3>Reference Matching</h3>
+                    <p class="description">Upload a reference track to apply its EQ curve to your selected track</p>
+                    <div class="reference-upload">
+                        <input type="file" id="referenceInput" accept=".wav,.mp3,.flac,.aiff,.ogg,.m4a" style="display: none;">
+                        <button class="btn btn-secondary" onclick="document.getElementById('referenceInput').click()">Upload Reference Track</button>
+                        <button class="btn btn-success" id="matchBtn" disabled>Apply Reference EQ</button>
+                    </div>
+                    <div id="referenceInfo"></div>
+                </div>
+
+                <div class="analysis-panel" id="waveformPanel" style="display: none;">
+                    <h3>Waveform & Playback</h3>
+                    <div id="waveform"></div>
+                    <div class="playback-controls">
+                        <button class="btn btn-play" id="playBtn">▶️ Play</button>
+                        <button class="btn btn-play" id="pauseBtn">⏸️ Pause</button>
+                        <span id="currentTime">0:00</span> / <span id="duration">0:00</span>
+                    </div>
+                </div>
+
+                <div id="processedFiles" class="processed-files"></div>
+            </div>
+        </div>
+
+        <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+            <div class="spinner"></div>
+            <p>Processing audio...</p>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
