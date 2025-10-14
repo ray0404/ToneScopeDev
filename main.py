@@ -18,6 +18,16 @@ app.config['PROCESSED_FOLDER'] = 'processed'
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
 app.config['ALLOWED_EXTENSIONS'] = {'wav', 'mp3', 'flac', 'aiff', 'ogg', 'm4a'}
 
+CUSTOM_PRESETS_FILE = 'custom_presets.json'
+custom_presets = {}
+
+def load_custom_presets():
+    global custom_presets
+    if os.path.exists(CUSTOM_PRESETS_FILE):
+        with open(CUSTOM_PRESETS_FILE, 'r') as f:
+            custom_presets = json.load(f)
+
+
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['PROCESSED_FOLDER'], exist_ok=True)
 
@@ -170,7 +180,14 @@ def apply_preset():
         if y.ndim == 1:
             y = np.stack([y, y])
         
-        y_processed = apply_tonal_preset(y, sr, preset)
+        if preset == 'custom' and 'settings' in data:
+            eq_curve = data['settings']
+            y_processed = apply_eq_curve(y, sr, eq_curve)
+        else:
+            y_processed = apply_tonal_preset(y, sr, preset)
+        
+        ceiling = data.get('ceiling', -0.1)
+        y_processed = peak_normalize(y_processed, target_dbfs=ceiling)
         
         output_filename = f"{os.path.splitext(filename)[0]}_{preset}.wav"
         output_path = os.path.join(app.config['PROCESSED_FOLDER'], output_filename)
@@ -181,9 +198,35 @@ def apply_preset():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+def analyze_tonal_character(y, sr):
+    curve = extract_eq_curve(y, sr)
+    
+    low_freq_limit = 500
+    high_freq_limit = 4000
+    
+    low_mags = [p['magnitude'] for p in curve if p['freq'] < low_freq_limit]
+    high_mags = [p['magnitude'] for p in curve if p['freq'] > high_freq_limit]
+    
+    avg_low = np.mean(low_mags) if low_mags else 0
+    avg_high = np.mean(high_mags) if high_mags else 0
+    
+    if avg_low > avg_high * 1.5:
+        return 'dark'
+    elif avg_high > avg_low * 1.5:
+        return 'bright'
+    else:
+        return 'balanced'
+
 def apply_tonal_preset(y, sr, preset):
     y_processed = y.copy()
     
+    # Analyze the tonal character of the input audio
+    if y.ndim > 1:
+        y_mono = librosa.to_mono(y)
+    else:
+        y_mono = y
+    character = analyze_tonal_character(y_mono, sr)
+
     presets = {
         'brighter': {
             'high_shelf': {'freq': 8000, 'gain': 3.0, 'q': 0.7},
@@ -205,7 +248,13 @@ def apply_tonal_preset(y, sr, preset):
     
     if preset.lower() in presets:
         eq_settings = presets[preset.lower()]
-        
+
+        # Adapt the preset based on the character
+        if preset.lower() == 'brighter' and character == 'dark':
+            eq_settings['high_shelf']['gain'] *= 1.5
+        elif preset.lower() == 'darker' and character == 'bright':
+            eq_settings['high_shelf']['gain'] *= 1.5
+
         for channel_idx in range(y.shape[0]):
             y_channel = y[channel_idx]
             
@@ -247,6 +296,9 @@ def apply_tonal_preset(y, sr, preset):
                 y_channel = signal.lfilter(b, a, y_channel)
             
             y_processed[channel_idx] = y_channel
+    elif preset in custom_presets:
+        eq_curve = custom_presets[preset]
+        y_processed = apply_eq_curve(y, sr, eq_curve)
     
     return y_processed
 
@@ -265,6 +317,172 @@ def normalize_loudness(y, sr, target_lufs=-23.0):
     gain_linear = 10.0 ** (gain_db / 20.0)
     
     return y * gain_linear
+
+@app.route('/get-custom-presets', methods=['GET'])
+def get_custom_presets():
+    return jsonify(custom_presets)
+
+@app.route('/save-custom-preset', methods=['POST'])
+def save_custom_preset():
+    global custom_presets
+    data = request.json
+    if not data or 'name' not in data or 'settings' not in data:
+        return jsonify({'error': 'Missing preset name or settings'}), 400
+    
+    preset_name = data['name']
+    settings = data['settings']
+    
+    custom_presets[preset_name] = settings
+    
+    with open(CUSTOM_PRESETS_FILE, 'w') as f:
+        json.dump(custom_presets, f, indent=4)
+        
+    return jsonify({'status': 'success'})
+
+@app.route('/apply-multiband-compressor', methods=['POST'])
+def apply_multiband_compressor_route():
+    try:
+        data = request.json
+        if not data or 'filename' not in data or 'settings' not in data:
+            return jsonify({'error': 'Missing filename or settings'}), 400
+        
+        filename = secure_filename(data['filename'])
+        settings = data['settings']
+        
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        y, sr = librosa.load(filepath, sr=None, mono=False)
+        
+        if y.ndim == 1:
+            y = np.stack([y, y])
+            
+        y_processed = apply_multiband_compressor(y, sr, settings)
+        
+        ceiling = data.get('ceiling', -0.1)
+        y_processed = peak_normalize(y_processed, target_dbfs=ceiling)
+        
+        output_filename = f"{os.path.splitext(filename)[0]}_compressed.wav"
+        output_path = os.path.join(app.config['PROCESSED_FOLDER'], output_filename)
+        
+        sf.write(output_path, y_processed.T, sr)
+        
+        return jsonify({'processed_file': output_filename})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+def apply_multiband_compressor(y, sr, settings):
+    # Crossover frequencies
+    low_mid_crossover = settings.get('low_mid_crossover', 300)
+    mid_high_crossover = settings.get('mid_high_crossover', 3000)
+
+    # --- Create crossover filters ---
+    # Low-pass for the low band
+    b_low, a_low = signal.butter(2, low_mid_crossover / (sr / 2), btype='low')
+    # High-pass for the high band
+    b_high, a_high = signal.butter(2, mid_high_crossover / (sr / 2), btype='high')
+    
+    # Band-pass for the mid band
+    b_mid_low, a_mid_low = signal.butter(2, low_mid_crossover / (sr / 2), btype='high')
+    b_mid_high, a_mid_high = signal.butter(2, mid_high_crossover / (sr / 2), btype='low')
+
+    y_processed = np.zeros_like(y)
+
+    for channel_idx in range(y.shape[0]):
+        y_channel = y[channel_idx]
+
+        # --- Split into bands ---
+        low_band = signal.lfilter(b_low, a_low, y_channel)
+        
+        mid_band_tmp = signal.lfilter(b_mid_low, a_mid_low, y_channel)
+        mid_band = signal.lfilter(b_mid_high, a_mid_high, mid_band_tmp)
+        
+        high_band = signal.lfilter(b_high, a_high, y_channel)
+
+        # --- Process each band ---
+        bands = {'low': low_band, 'mid': mid_band, 'high': high_band}
+        processed_bands = {}
+
+        for band_name, band_signal in bands.items():
+            band_settings = settings.get(band_name, {})
+            threshold = band_settings.get('threshold', 0.0)
+            ratio = band_settings.get('ratio', 1.0)
+            attack = band_settings.get('attack', 0.01)
+            release = band_settings.get('release', 0.1)
+
+            # Simple compressor logic
+            if ratio > 1:
+                alpha_attack = np.exp(-1.0 / (sr * attack))
+                alpha_release = np.exp(-1.0 / (sr * release))
+
+                envelope = np.zeros_like(band_signal)
+                gain = np.ones_like(band_signal)
+
+                for i in range(1, len(band_signal)):
+                    # Peak detection
+                    envelope[i] = max(abs(band_signal[i]), envelope[i-1] * alpha_release)
+                
+                # Gain computation
+                for i in range(len(envelope)):
+                    if envelope[i] > threshold:
+                        gain[i] = (threshold / envelope[i]) ** (1 - 1/ratio)
+
+                # Apply gain
+                processed_bands[band_name] = band_signal * gain
+            else:
+                processed_bands[band_name] = band_signal
+        
+        # --- Combine bands ---
+        y_processed[channel_idx] = processed_bands['low'] + processed_bands['mid'] + processed_bands['high']
+
+    return y_processed
+
+@app.route('/apply-stereo-imaging', methods=['POST'])
+def apply_stereo_imaging_route():
+    try:
+        data = request.json
+        if not data or 'filename' not in data or 'width' not in data:
+            return jsonify({'error': 'Missing filename or width'}), 400
+        
+        filename = secure_filename(data['filename'])
+        width = data['width']
+        
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        y, sr = librosa.load(filepath, sr=None, mono=False)
+        
+        if y.ndim == 1:
+            return jsonify({'error': 'Stereo imaging can only be applied to stereo files'}), 400
+            
+        y_processed = apply_stereo_imaging(y, sr, width)
+        
+        ceiling = data.get('ceiling', -0.1)
+        y_processed = peak_normalize(y_processed, target_dbfs=ceiling)
+        
+        output_filename = f"{os.path.splitext(filename)[0]}_stereo.wav"
+        output_path = os.path.join(app.config['PROCESSED_FOLDER'], output_filename)
+        
+        sf.write(output_path, y_processed.T, sr)
+        
+        return jsonify({'processed_file': output_filename})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+def apply_stereo_imaging(y, sr, width):
+    if y.ndim < 2:
+        return y
+
+    left = y[0]
+    right = y[1]
+
+    mid = (left + right) / 2
+    side = (left - right) / 2
+
+    # Adjust the width of the side channel
+    side = side * width
+
+    # Convert back to left/right
+    new_left = mid + side
+    new_right = mid - side
+
+    return np.stack([new_left, new_right])
 
 @app.route('/match-reference', methods=['POST'])
 def match_reference():
@@ -303,10 +521,12 @@ def match_reference():
         target_curve = extract_eq_curve(y_target_mono, sr_target)
         
         corrective_curve = compute_corrective_eq(ref_curve, target_curve)
+        corrective_curve = smooth_curve(corrective_curve)
         
         y_matched = apply_eq_curve(y_target, sr_target, corrective_curve)
         
-        y_matched = peak_normalize(y_matched)
+        ceiling = float(request.form.get('ceiling', -0.1))
+        y_matched = peak_normalize(y_matched, target_dbfs=ceiling)
         
         output_filename = f"{os.path.splitext(target_filename)[0]}_matched.wav"
         output_path = os.path.join(app.config['PROCESSED_FOLDER'], output_filename)
@@ -323,7 +543,7 @@ def extract_eq_curve(y, sr):
     S = np.abs(librosa.stft(y))
     freqs = librosa.fft_frequencies(sr=sr)
     
-    freq_bins = np.logspace(np.log10(20), np.log10(20000), 20)
+    freq_bins = np.logspace(np.log10(20), np.log10(20000), 100)
     eq_curve = []
     
     for i in range(len(freq_bins) - 1):
@@ -336,6 +556,24 @@ def extract_eq_curve(y, sr):
             })
     
     return eq_curve
+
+def smooth_curve(curve, window_size=5):
+    smoothed_curve = []
+    gains = [p['gain_db'] for p in curve]
+    
+    # Pad the gains to handle edges
+    padded_gains = np.pad(gains, (window_size // 2, window_size // 2), mode='edge')
+    
+    # Apply moving average
+    smoothed_gains = np.convolve(padded_gains, np.ones(window_size) / window_size, mode='valid')
+    
+    for i in range(len(curve)):
+        smoothed_curve.append({
+            'freq': curve[i]['freq'],
+            'gain_db': smoothed_gains[i]
+        })
+        
+    return smoothed_curve
 
 def compute_corrective_eq(ref_curve, target_curve):
     corrective_curve = []
@@ -354,33 +592,33 @@ def compute_corrective_eq(ref_curve, target_curve):
     
     return corrective_curve
 
-def apply_eq_curve(y, sr, eq_curve):
+def apply_eq_curve(y, sr, eq_curve, num_taps=1025):
     y_processed = y.copy()
     
     if len(eq_curve) == 0:
         return y_processed
+
+    # Create the frequency and gain arrays for firwin2
+    freqs = [p['freq'] for p in eq_curve]
+    gains_db = [p['gain_db'] for p in eq_curve]
     
-    for eq_point in eq_curve:
-        freq = eq_point['freq']
-        gain_db = eq_point['gain_db']
-        
-        for channel_idx in range(y.shape[0]):
-            w0 = 2 * np.pi * freq / sr
-            alpha = np.sin(w0) / (2 * 1.0)
-            A = 10 ** (gain_db / 40)
-            
-            b0 = 1 + alpha * A
-            b1 = -2 * np.cos(w0)
-            b2 = 1 - alpha * A
-            a0 = 1 + alpha / A
-            a1 = -2 * np.cos(w0)
-            a2 = 1 - alpha / A
-            
-            b = [b0 / a0, b1 / a0, b2 / a0]
-            a = [1, a1 / a0, a2 / a0]
-            
-            y_processed[channel_idx] = signal.lfilter(b, a, y_processed[channel_idx])
-    
+    # Add 0 Hz and Nyquist to the arrays
+    freqs = [0] + freqs + [sr / 2]
+    gains_db = [gains_db[0]] + gains_db + [gains_db[-1]] # Pad with edge values
+
+    # Convert gains from dB to linear
+    gains = 10.0 ** (np.array(gains_db) / 20.0)
+
+    # Normalize frequencies to [0, 1]
+    freqs = np.array(freqs) / (sr / 2)
+
+    # Design the FIR filter
+    taps = signal.firwin2(num_taps, freqs, gains)
+
+    # Apply the filter to each channel
+    for channel_idx in range(y.shape[0]):
+        y_processed[channel_idx] = signal.lfilter(taps, 1.0, y[channel_idx])
+
     return y_processed
 
 @app.route('/uploads/<filename>')
@@ -402,6 +640,8 @@ def clear_files():
         return jsonify({'status': 'success'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+load_custom_presets()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

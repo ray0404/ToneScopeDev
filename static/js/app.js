@@ -287,7 +287,8 @@ async function applyPreset(preset) {
             },
             body: JSON.stringify({
                 filename: currentTrack,
-                preset: preset
+                preset: preset,
+                ceiling: getLimiterCeiling()
             })
         });
         
@@ -317,6 +318,7 @@ async function applyReferenceMatching() {
         const formData = new FormData();
         formData.append('reference', referenceFile);
         formData.append('target', currentTrack);
+        formData.append('ceiling', getLimiterCeiling());
         
         const response = await fetch('/match-reference', {
             method: 'POST',
@@ -439,4 +441,322 @@ async function clearAllFiles() {
 
 function showLoading(show) {
     loadingOverlay.style.display = show ? 'flex' : 'none';
+}
+
+let customEqChart = null;
+
+const applyCustomEqBtn = document.getElementById('applyCustomEqBtn');
+const customPresetName = document.getElementById('customPresetName');
+const saveCustomPresetBtn = document.getElementById('saveCustomPresetBtn');
+
+applyCustomEqBtn.addEventListener('click', applyCustomEq);
+saveCustomPresetBtn.addEventListener('click', saveCustomPreset);
+
+function initializeCustomEqChart() {
+    const ctx = document.getElementById('customEqChart').getContext('2d');
+    
+    const initialEqCurve = [
+        { x: 20, y: 0 },
+        { x: 100, y: 0 },
+        { x: 500, y: 0 },
+        { x: 2000, y: 0 },
+        { x: 8000, y: 0 },
+        { x: 20000, y: 0 }
+    ];
+
+    customEqChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            datasets: [{
+                label: 'Custom EQ',
+                data: initialEqCurve,
+                borderColor: '#764ba2',
+                backgroundColor: 'rgba(118, 75, 162, 0.1)',
+                tension: 0.4,
+                pointRadius: 10,
+                pointHoverRadius: 12,
+                pointBackgroundColor: '#fff',
+                pointBorderColor: '#764ba2'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    type: 'logarithmic',
+                    title: {
+                        display: true,
+                        text: 'Frequency (Hz)',
+                        font: { size: 14 }
+                    },
+                    min: 20,
+                    max: 20000
+                },
+                y: {
+                    title: {
+                        display: true,
+                        text: 'Gain (dB)',
+                        font: { size: 14 }
+                    },
+                    min: -12,
+                    max: 12
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    enabled: false
+                },
+                dragData: {
+                    round: 1,
+                    showTooltip: true,
+                    onDragEnd: function(e, datasetIndex, index, value) {
+                        // console.log(e, datasetIndex, index, value);
+                    }
+                }
+            }
+        }
+    });
+    document.getElementById('customEqChart').style.height = '300px';
+}
+
+async function applyCustomEq() {
+    if (!currentTrack) {
+        alert('Please select a track first');
+        return;
+    }
+
+    const eqCurve = customEqChart.data.datasets[0].data.map(p => ({ freq: p.x, gain_db: p.y }));
+
+    showLoading(true);
+
+    try {
+        const response = await fetch('/apply-preset', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                filename: currentTrack,
+                preset: 'custom', // Special name for custom preset
+                settings: eqCurve,
+                ceiling: getLimiterCeiling()
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.processed_file) {
+            displayProcessedFile(data.processed_file, 'Custom EQ applied');
+        } else if (data.error) {
+            alert('Error: ' + data.error);
+        }
+    } catch (error) {
+        alert('Error applying custom EQ: ' + error.message);
+    } finally {
+        showLoading(false);
+    }
+}
+
+async function saveCustomPreset() {
+    const presetName = customPresetName.value;
+    if (!presetName) {
+        alert('Please enter a name for the preset');
+        return;
+    }
+
+    const eqCurve = customEqChart.data.datasets[0].data.map(p => ({ freq: p.x, gain_db: p.y }));
+
+    try {
+        const response = await fetch('/save-custom-preset', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                name: presetName,
+                settings: eqCurve
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.status === 'success') {
+            alert('Preset saved successfully');
+            loadCustomPresets(); // Reload the presets
+        } else if (data.error) {
+            alert('Error: ' + data.error);
+        }
+    } catch (error) {
+        alert('Error saving preset: ' + error.message);
+    }
+}
+
+async function loadCustomPresets() {
+    try {
+        const response = await fetch('/get-custom-presets');
+        const presets = await response.json();
+
+        const presetButtons = document.querySelector('.preset-buttons');
+        // Remove existing custom presets
+        presetButtons.querySelectorAll('.btn-custom-preset').forEach(btn => btn.remove());
+
+        for (const presetName in presets) {
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-preset btn-custom-preset';
+            btn.dataset.preset = presetName;
+            btn.textContent = presetName;
+            btn.addEventListener('click', () => {
+                applyPreset(presetName);
+            });
+            presetButtons.appendChild(btn);
+        }
+    } catch (error)
+    {
+        console.error('Error loading custom presets:', error);
+    }
+}
+
+// Initialize
+loadCustomPresets();
+
+const applyMultibandCompressorBtn = document.getElementById('applyMultibandCompressorBtn');
+
+applyMultibandCompressorBtn.addEventListener('click', applyMultibandCompressor);
+
+// Update slider values
+document.querySelectorAll('.multiband-compressor-controls input[type="range"]').forEach(slider => {
+    const valueSpan = document.getElementById(`${slider.id}-value`);
+    if (valueSpan) {
+        slider.addEventListener('input', () => {
+            if (slider.id.includes('threshold')) {
+                valueSpan.textContent = `${slider.value} dB`;
+            } else if (slider.id.includes('ratio')) {
+                valueSpan.textContent = `${slider.value}:1`;
+            } else {
+                valueSpan.textContent = `${slider.value} ms`;
+            }
+        });
+    }
+});
+
+async function applyMultibandCompressor() {
+    if (!currentTrack) {
+        alert('Please select a track first');
+        return;
+    }
+
+    const settings = {
+        low: {
+            threshold: parseFloat(document.getElementById('low-threshold').value),
+            ratio: parseFloat(document.getElementById('low-ratio').value),
+            attack: parseFloat(document.getElementById('low-attack').value) / 1000,
+            release: parseFloat(document.getElementById('low-release').value) / 1000
+        },
+        mid: {
+            threshold: parseFloat(document.getElementById('mid-threshold').value),
+            ratio: parseFloat(document.getElementById('mid-ratio').value),
+            attack: parseFloat(document.getElementById('mid-attack').value) / 1000,
+            release: parseFloat(document.getElementById('mid-release').value) / 1000
+        },
+        high: {
+            threshold: parseFloat(document.getElementById('high-threshold').value),
+            ratio: parseFloat(document.getElementById('high-ratio').value),
+            attack: parseFloat(document.getElementById('high-attack').value) / 1000,
+            release: parseFloat(document.getElementById('high-release').value) / 1000
+        }
+    };
+
+    // Convert threshold from dB to linear
+    settings.low.threshold = 10 ** (settings.low.threshold / 20);
+    settings.mid.threshold = 10 ** (settings.mid.threshold / 20);
+    settings.high.threshold = 10 ** (settings.high.threshold / 20);
+
+    showLoading(true);
+
+    try {
+        const response = await fetch('/apply-multiband-compressor', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                filename: currentTrack,
+                settings: settings,
+                ceiling: getLimiterCeiling()
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.processed_file) {
+            displayProcessedFile(data.processed_file, 'Multi-band compression applied');
+        } else if (data.error) {
+            alert('Error: ' + data.error);
+        }
+    } finally {
+        showLoading(false);
+    }
+}
+
+const applyStereoImagingBtn = document.getElementById('applyStereoImagingBtn');
+const stereoWidthSlider = document.getElementById('stereo-width');
+const stereoWidthValue = document.getElementById('stereo-width-value');
+
+stereoWidthSlider.addEventListener('input', () => {
+    stereoWidthValue.textContent = parseFloat(stereoWidthSlider.value).toFixed(1);
+});
+
+applyStereoImagingBtn.addEventListener('click', applyStereoImaging);
+
+async function applyStereoImaging() {
+    if (!currentTrack) {
+        alert('Please select a track first');
+        return;
+    }
+
+    const width = parseFloat(stereoWidthSlider.value);
+
+    showLoading(true);
+
+    try {
+        const response = await fetch('/apply-stereo-imaging', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                filename: currentTrack,
+                width: width,
+                ceiling: getLimiterCeiling()
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.processed_file) {
+            displayProcessedFile(data.processed_file, 'Stereo imaging applied');
+        } else if (data.error) {
+            alert('Error: ' + data.error);
+        }
+    } catch (error) {
+        alert('Error applying stereo imaging: ' + error.message);
+    } finally {
+        showLoading(false);
+    }
+}
+
+const limiterCeilingSlider = document.getElementById('limiter-ceiling');
+const limiterCeilingValue = document.getElementById('limiter-ceiling-value');
+
+limiterCeilingSlider.addEventListener('input', () => {
+    limiterCeilingValue.textContent = `${parseFloat(limiterCeilingSlider.value).toFixed(1)} dBFS`;
+});
+
+// Helper function to get limiter ceiling
+function getLimiterCeiling() {
+    return parseFloat(limiterCeilingSlider.value);
 }

@@ -6,6 +6,7 @@
     <title>ToneScope - Audio Analysis & Mastering Tool</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-dragdata@2.2.3/dist/chartjs-plugin-dragdata.min.js"></script>
     <script src="https://unpkg.com/wavesurfer.js@7"></script>
 </head>
 <body>
@@ -87,6 +88,17 @@
                 </div>
 
                 <div class="analysis-panel">
+                    <h3>Custom EQ</h3>
+                    <p class="description">Create your own EQ curve and apply it to the selected track.</p>
+                    <canvas id="customEqChart"></canvas>
+                    <div class="custom-eq-controls">
+                        <button class="btn btn-primary" id="applyCustomEqBtn">Apply Custom EQ</button>
+                        <input type="text" id="customPresetName" placeholder="Preset Name">
+                        <button class="btn btn-success" id="saveCustomPresetBtn">Save Preset</button>
+                    </div>
+                </div>
+
+                <div class="analysis-panel">
                     <h3>Reference Matching</h3>
                     <p class="description">Upload a reference track to apply its EQ curve to your selected track</p>
                     <div class="reference-upload">
@@ -108,6 +120,112 @@
                 </div>
 
                 <div id="processedFiles" class="processed-files"></div>
+            </div>
+        </div>
+
+        <div class="module-section">
+            <h2>Module 3: Advanced Processing</h2>
+
+            <div class="analysis-panel">
+                <h3>Multi-band Compressor</h3>
+                <p class="description">Apply dynamic compression to different frequency bands.</p>
+                <div class="multiband-compressor-controls">
+                    <div class="band-controls">
+                        <h4>Low Band</h4>
+                        <div class="control-group">
+                            <label>Threshold (dB)</label>
+                            <input type="range" id="low-threshold" min="-60" max="0" value="-20" step="1">
+                            <span id="low-threshold-value">-20 dB</span>
+                        </div>
+                        <div class="control-group">
+                            <label>Ratio</label>
+                            <input type="range" id="low-ratio" min="1" max="20" value="2" step="0.1">
+                            <span id="low-ratio-value">2:1</span>
+                        </div>
+                        <div class="control-group">
+                            <label>Attack (ms)</label>
+                            <input type="range" id="low-attack" min="1" max="100" value="10" step="1">
+                            <span id="low-attack-value">10 ms</span>
+                        </div>
+                        <div class="control-group">
+                            <label>Release (ms)</label>
+                            <input type="range" id="low-release" min="10" max="1000" value="100" step="10">
+                            <span id="low-release-value">100 ms</span>
+                        </div>
+                    </div>
+                    <div class="band-controls">
+                        <h4>Mid Band</h4>
+                        <div class="control-group">
+                            <label>Threshold (dB)</label>
+                            <input type="range" id="mid-threshold" min="-60" max="0" value="-20" step="1">
+                            <span id="mid-threshold-value">-20 dB</span>
+                        </div>
+                        <div class="control-group">
+                            <label>Ratio</label>
+                            <input type="range" id="mid-ratio" min="1" max="20" value="2" step="0.1">
+                            <span id="mid-ratio-value">2:1</span>
+                        </div>
+                        <div class="control-group">
+                            <label>Attack (ms)</label>
+                            <input type="range" id="mid-attack" min="1" max="100" value="10" step="1">
+                            <span id="mid-attack-value">10 ms</span>
+                        </div>
+                        <div class="control-group">
+                            <label>Release (ms)</label>
+                            <input type="range" id="mid-release" min="10" max="1000" value="100" step="10">
+                            <span id="mid-release-value">100 ms</span>
+                        </div>
+                    </div>
+                    <div class="band-controls">
+                        <h4>High Band</h4>
+                        <div class="control-group">
+                            <label>Threshold (dB)</label>
+                            <input type="range" id="high-threshold" min="-60" max="0" value="-20" step="1">
+                            <span id="high-threshold-value">-20 dB</span>
+                        </div>
+                        <div class="control-group">
+                            <label>Ratio</label>
+                            <input type="range" id="high-ratio" min="1" max="20" value="2" step="0.1">
+                            <span id="high-ratio-value">2:1</span>
+                        </div>
+                        <div class="control-group">
+                            <label>Attack (ms)</label>
+                            <input type="range" id="high-attack" min="1" max="100" value="10" step="1">
+                            <span id="high-attack-value">10 ms</span>
+                        </div>
+                        <div class="control-group">
+                            <label>Release (ms)</label>
+                            <input type="range" id="high-release" min="10" max="1000" value="100" step="10">
+                            <span id="high-release-value">100 ms</span>
+                        </div>
+                    </div>
+                </div>
+                <button class="btn btn-primary" id="applyMultibandCompressorBtn">Apply Multi-band Compressor</button>
+            </div>
+
+            <div class="analysis-panel">
+                <h3>Stereo Imaging</h3>
+                <p class="description">Adjust the stereo width of the selected track.</p>
+                <div class="stereo-imaging-controls">
+                    <div class="control-group">
+                        <label>Width</label>
+                        <input type="range" id="stereo-width" min="0" max="2" value="1" step="0.1">
+                        <span id="stereo-width-value">1.0</span>
+                    </div>
+                </div>
+                <button class="btn btn-primary" id="applyStereoImagingBtn">Apply Stereo Imaging</button>
+            </div>
+
+            <div class="analysis-panel">
+                <h3>Limiter</h3>
+                <p class="description">Set the final ceiling for the processed audio.</p>
+                <div class="limiter-controls">
+                    <div class="control-group">
+                        <label>Ceiling (dBFS)</label>
+                        <input type="range" id="limiter-ceiling" min="-12" max="0" value="-0.1" step="0.1">
+                        <span id="limiter-ceiling-value">-0.1 dBFS</span>
+                    </div>
+                </div>
             </div>
         </div>
 
