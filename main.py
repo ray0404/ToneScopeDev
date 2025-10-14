@@ -1,6 +1,7 @@
 import os
 import json
 from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import librosa
@@ -9,10 +10,13 @@ import soundfile as sf
 import pyloudnorm as pyln
 from pydub import AudioSegment
 from scipy import signal
+import base64
+import io
 
 app = Flask(__name__)
 CORS(app)
 app.config['SECRET_KEY'] = os.environ.get('SESSION_SECRET', 'dev-secret-key')
+socketio = SocketIO(app, cors_allowed_origins="*")
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['PROCESSED_FOLDER'] = 'processed'
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
@@ -641,7 +645,180 @@ def clear_files():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/process-audio', methods=['POST'])
+def process_audio():
+    try:
+        data = request.json
+        if not data or 'filename' not in data or 'effects' not in data:
+            return jsonify({'error': 'Missing filename or effects chain'}), 400
+
+        filename = secure_filename(data['filename'])
+        effects = data['effects']
+
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        y, sr = librosa.load(filepath, sr=None, mono=False)
+
+        if y.ndim == 1:
+            y = np.stack([y, y])
+
+        y_processed = y.copy()
+
+        for effect in effects:
+            effect_type = effect.get('type')
+            settings = effect.get('settings', {})
+
+            if effect_type == 'tonal_balance':
+                preset = settings.get('preset')
+                if preset:
+                    if preset == 'custom':
+                        y_processed = apply_eq_curve(y_processed, sr, settings.get('eq_curve', []))
+                    else:
+                        y_processed = apply_tonal_preset(y_processed, sr, preset)
+            elif effect_type == 'multiband_compressor':
+                y_processed = apply_multiband_compressor(y_processed, sr, settings)
+            elif effect_type == 'stereo_imaging':
+                width = settings.get('width', 1.0)
+                y_processed = apply_stereo_imaging(y_processed, sr, width)
+
+        ceiling = data.get('ceiling', -0.1)
+        y_processed = peak_normalize(y_processed, target_dbfs=ceiling)
+
+        output_filename = f"{os.path.splitext(filename)[0]}_processed.wav"
+        output_path = os.path.join(app.config['PROCESSED_FOLDER'], output_filename)
+
+        sf.write(output_path, y_processed.T, sr)
+
+        return jsonify({'processed_file': output_filename})
+    except Exception as e:
+        app.logger.error(f"Error in /process-audio: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/auto-optimize-compressor', methods=['POST'])
+def auto_optimize_compressor_route():
+    try:
+        data = request.json
+        if not data or 'filename' not in data:
+            return jsonify({'error': 'Missing filename'}), 400
+
+        filename = secure_filename(data['filename'])
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        y, sr = librosa.load(filepath, sr=None, mono=False)
+
+        if y.ndim == 1:
+            y_mono = y
+        else:
+            y_mono = librosa.to_mono(y)
+
+        settings = auto_optimize_compressor_settings(y_mono, sr)
+        return jsonify(settings)
+    except Exception as e:
+        app.logger.error(f"Error in /auto-optimize-compressor: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+def auto_optimize_compressor_settings(y, sr):
+    # Analyze overall dynamics and frequency content
+    crest_factor = calculate_dynamic_range(y, sr)['crest_factor']
+    spectral_centroid = np.mean(librosa.feature.spectral_centroid(y=y, sr=sr))
+
+    # Crossover frequencies (can be dynamic later)
+    low_mid_crossover = 300
+    mid_high_crossover = 3000
+
+    # --- Split into bands for analysis ---
+    b_low, a_low = signal.butter(2, low_mid_crossover / (sr / 2), btype='low')
+    low_band = signal.lfilter(b_low, a_low, y)
+
+    b_high, a_high = signal.butter(2, mid_high_crossover / (sr / 2), btype='high')
+    high_band = signal.lfilter(b_high, a_high, y)
+
+    b_mid_low, a_mid_low = signal.butter(2, low_mid_crossover / (sr / 2), btype='high')
+    b_mid_high, a_mid_high = signal.butter(2, mid_high_crossover / (sr / 2), btype='low')
+    mid_band_tmp = signal.lfilter(b_mid_low, a_mid_low, y)
+    mid_band = signal.lfilter(b_mid_high, a_mid_high, mid_band_tmp)
+
+    # --- Determine settings for each band ---
+    settings = {
+        'low_mid_crossover': low_mid_crossover,
+        'mid_high_crossover': mid_high_crossover,
+        'low': {},
+        'mid': {},
+        'high': {}
+    }
+
+    # Low band
+    low_rms = np.sqrt(np.mean(low_band**2))
+    settings['low']['threshold'] = max(-30, 20 * np.log10(low_rms + 1e-10) + 10) # Heuristic
+    settings['low']['ratio'] = 2.0 if crest_factor > 15 else 1.5
+    settings['low']['attack'] = 0.02
+    settings['low']['release'] = 0.2
+
+    # Mid band
+    mid_rms = np.sqrt(np.mean(mid_band**2))
+    settings['mid']['threshold'] = max(-25, 20 * np.log10(mid_rms + 1e-10) + 5)
+    settings['mid']['ratio'] = 2.5 if spectral_centroid > 2000 else 2.0
+    settings['mid']['attack'] = 0.01
+    settings['mid']['release'] = 0.1
+
+    # High band
+    high_rms = np.sqrt(np.mean(high_band**2))
+    settings['high']['threshold'] = max(-20, 20 * np.log10(high_rms + 1e-10))
+    settings['high']['ratio'] = 3.0 if spectral_centroid > 3000 else 2.5
+    settings['high']['attack'] = 0.005
+    settings['high']['release'] = 0.05
+
+    return settings
+
 load_custom_presets()
 
+@socketio.on('live_preview')
+def handle_live_preview(data):
+    try:
+        filename = secure_filename(data['filename'])
+        effects = data.get('effects', [])
+
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+
+        # Use a short segment for preview to reduce latency
+        y, sr = librosa.load(filepath, sr=None, mono=False, duration=5.0)
+
+        if y.ndim == 1:
+            y = np.stack([y, y])
+
+        y_processed = y.copy()
+
+        for effect in effects:
+            effect_type = effect.get('type')
+            settings = effect.get('settings', {})
+
+            if effect_type == 'tonal_balance':
+                preset = settings.get('preset')
+                if preset:
+                    if preset == 'custom':
+                        y_processed = apply_eq_curve(y_processed, sr, settings.get('eq_curve', []))
+                    else:
+                        y_processed = apply_tonal_preset(y_processed, sr, preset)
+            elif effect_type == 'multiband_compressor':
+                y_processed = apply_multiband_compressor(y_processed, sr, settings)
+            elif effect_type == 'stereo_imaging':
+                width = settings.get('width', 1.0)
+                y_processed = apply_stereo_imaging(y_processed, sr, width)
+
+        # Normalize and encode to send back
+        y_processed = peak_normalize(y_processed, target_dbfs=-0.1)
+
+        buffer = io.BytesIO()
+        sf.write(buffer, y_processed.T, sr, format='wav')
+        buffer.seek(0)
+
+        encoded_audio = base64.b64encode(buffer.read()).decode('utf-8')
+
+        emit('preview_audio', {'audio': encoded_audio})
+
+    except Exception as e:
+        app.logger.error(f"Live preview error: {str(e)}")
+        emit('preview_error', {'error': str(e)})
+
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
