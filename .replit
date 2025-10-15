@@ -49,3 +49,4 @@ externalPort = 3000
 [deployment]
 deploymentTarget = "vm"
 run = ["gunicorn", "--worker-class", "eventlet", "--bind", "0.0.0.0:5000", "--reuse-port", "main:app"]
+healthCheck = { path = "/health", port = 5000 }
