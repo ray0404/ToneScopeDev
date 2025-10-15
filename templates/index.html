@@ -255,13 +255,81 @@
             </div>
 
             <div class="analysis-panel">
-                <h3>Limiter</h3>
-                <p class="description">Set the final ceiling for the processed audio.</p>
-                <div class="limiter-controls">
+                <h3>Volume Maximizer</h3>
+                <p class="description">Professional limiting and loudness maximization for your final master.</p>
+                
+                <div class="effect-toggle-container">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="volumeMaximizerToggle">
+                        <span class="toggle-slider"></span>
+                        <span class="toggle-label">Enable Volume Maximizer</span>
+                    </label>
+                </div>
+                
+                <div class="maximizer-controls" id="maximizerControls">
+                    <!-- Mode Selection -->
+                    <div class="control-group">
+                        <label>Limiting Mode</label>
+                        <select id="limiter-mode" class="mode-selector">
+                            <option value="digital_brickwall">Digital Brickwall</option>
+                            <option value="soft_clipper">Soft Clipper</option>
+                            <option value="transparent_multiband">Transparent Multiband</option>
+                            <option value="analog_saturated">Analog Saturated</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Ceiling Control (Always visible) -->
                     <div class="control-group">
                         <label>Ceiling (dBFS)</label>
                         <input type="range" id="limiter-ceiling" min="-12" max="0" value="-0.1" step="0.1">
                         <span id="limiter-ceiling-value">-0.1 dBFS</span>
+                    </div>
+                    
+                    <!-- Threshold Control -->
+                    <div class="control-group" id="threshold-group">
+                        <label>Threshold (dB)</label>
+                        <input type="range" id="limiter-threshold" min="-30" max="0" value="-6" step="0.5">
+                        <span id="limiter-threshold-value">-6.0 dB</span>
+                    </div>
+                    
+                    <!-- Attack Control -->
+                    <div class="control-group" id="attack-group">
+                        <label>Attack (ms)</label>
+                        <input type="range" id="limiter-attack" min="0" max="10" value="0.5" step="0.1">
+                        <span id="limiter-attack-value">0.5 ms</span>
+                    </div>
+                    
+                    <!-- Release Control -->
+                    <div class="control-group" id="release-group">
+                        <label>Release (ms)</label>
+                        <input type="range" id="limiter-release" min="1" max="100" value="10" step="1">
+                        <span id="limiter-release-value">10 ms</span>
+                    </div>
+                    
+                    <!-- Saturation Control (for analog mode) -->
+                    <div class="control-group" id="saturation-group" style="display: none;">
+                        <label>Saturation Amount</label>
+                        <input type="range" id="limiter-saturation" min="0" max="100" value="30" step="1">
+                        <span id="limiter-saturation-value">30%</span>
+                    </div>
+                    
+                    <!-- Smart Features -->
+                    <div class="smart-controls">
+                        <div class="smart-toggle-group">
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="smartLimitToggle">
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-label">Smart Limit (Auto-optimize)</span>
+                            </label>
+                        </div>
+                        
+                        <div class="smart-toggle-group">
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="maximizeLoudnessToggle">
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-label">Maximize Loudness (-9 LUFS)</span>
+                            </label>
+                        </div>
                     </div>
                 </div>
             </div>
