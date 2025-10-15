@@ -78,21 +78,46 @@
 
                 <div class="analysis-panel">
                     <h3>One-Click Tonal Presets</h3>
-                    <p class="description">Apply mastering presets for instant A/B comparison</p>
-                    <div class="preset-buttons">
-                        <button class="btn btn-preset" data-preset="brighter">✨ Brighter</button>
-                        <button class="btn btn-preset" data-preset="darker">🌙 Darker</button>
-                        <button class="btn btn-preset" data-preset="vintage_warmth">🔥 Vintage Warmth</button>
-                        <button class="btn btn-preset" data-preset="modern_punch">⚡ Modern Punch</button>
+                    <p class="description">Select a mastering preset for processing</p>
+                    <div class="effect-toggle-container">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="tonalPresetToggle">
+                            <span class="toggle-slider"></span>
+                            <span class="toggle-label">Enable Tonal Preset</span>
+                        </label>
+                    </div>
+                    <div class="preset-buttons" id="presetButtons" style="margin-top: 10px;">
+                        <label class="preset-radio">
+                            <input type="radio" name="preset" value="brighter">
+                            <span>✨ Brighter</span>
+                        </label>
+                        <label class="preset-radio">
+                            <input type="radio" name="preset" value="darker">
+                            <span>🌙 Darker</span>
+                        </label>
+                        <label class="preset-radio">
+                            <input type="radio" name="preset" value="vintage_warmth">
+                            <span>🔥 Vintage Warmth</span>
+                        </label>
+                        <label class="preset-radio">
+                            <input type="radio" name="preset" value="modern_punch">
+                            <span>⚡ Modern Punch</span>
+                        </label>
                     </div>
                 </div>
 
                 <div class="analysis-panel">
                     <h3>Custom EQ</h3>
-                    <p class="description">Create your own EQ curve and apply it to the selected track.</p>
+                    <p class="description">Create your own EQ curve for processing</p>
+                    <div class="effect-toggle-container">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="customEqToggle">
+                            <span class="toggle-slider"></span>
+                            <span class="toggle-label">Enable Custom EQ</span>
+                        </label>
+                    </div>
                     <canvas id="customEqChart"></canvas>
                     <div class="custom-eq-controls">
-                        <button class="btn btn-primary" id="applyCustomEqBtn">Apply Custom EQ</button>
                         <input type="text" id="customPresetName" placeholder="Preset Name">
                         <button class="btn btn-success" id="saveCustomPresetBtn">Save Preset</button>
                     </div>
@@ -200,7 +225,14 @@
                         </div>
                     </div>
                 </div>
-                <button class="btn btn-primary" id="applyMultibandCompressorBtn">Apply Multi-band Compressor</button>
+                <div class="effect-toggle-container">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="multibandCompressorToggle">
+                        <span class="toggle-slider"></span>
+                        <span class="toggle-label">Enable Multi-band Compressor</span>
+                    </label>
+                    <button class="btn btn-secondary" id="autoTuneCompressorBtn" style="margin-left: 20px;">Auto-Tune Settings</button>
+                </div>
             </div>
 
             <div class="analysis-panel">
@@ -213,7 +245,13 @@
                         <span id="stereo-width-value">1.0</span>
                     </div>
                 </div>
-                <button class="btn btn-primary" id="applyStereoImagingBtn">Apply Stereo Imaging</button>
+                <div class="effect-toggle-container">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="stereoImagingToggle">
+                        <span class="toggle-slider"></span>
+                        <span class="toggle-label">Enable Stereo Imaging</span>
+                    </label>
+                </div>
             </div>
 
             <div class="analysis-panel">
@@ -226,6 +264,13 @@
                         <span id="limiter-ceiling-value">-0.1 dBFS</span>
                     </div>
                 </div>
+            </div>
+            
+            <!-- Global Process Audio Button -->
+            <div class="analysis-panel">
+                <h3>Process Audio</h3>
+                <p class="description">Apply all enabled effects to the selected track</p>
+                <button class="btn btn-success btn-large" id="processAudioBtn" disabled>🎚️ Process Audio</button>
             </div>
         </div>
 
