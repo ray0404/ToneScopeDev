@@ -1,5 +1,3 @@
-import eventlet
-eventlet.monkey_patch()
 
 import os
 import json
@@ -833,5 +831,4 @@ def handle_live_preview(data):
         emit('preview_error', {'error': str(e)})
 
 
-if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+
