@@ -55,16 +55,13 @@ const multibandCompressorToggle = document.getElementById('multibandCompressorTo
 const stereoImagingToggle = document.getElementById('stereoImagingToggle');
 const autoTuneCompressorBtn = document.getElementById('autoTuneCompressorBtn');
 
-// Enable Process Audio button when track is selected
-trackSelector.addEventListener('change', () => {
-    processAudioBtn.disabled = !currentTrack;
-});
-
 // Process Audio button click handler
 processAudioBtn.addEventListener('click', processAudioWithEffects);
 
+// Consolidated trackSelector change handler
 trackSelector.addEventListener('change', (e) => {
     currentTrack = e.target.value;
+    processAudioBtn.disabled = !currentTrack;
     if (currentTrack) {
         loadWaveform(currentTrack);
     }
@@ -453,11 +450,6 @@ function showLoading(show) {
 }
 
 let customEqChart = null;
-
-const customPresetName = document.getElementById('customPresetName');
-const saveCustomPresetBtn = document.getElementById('saveCustomPresetBtn');
-
-saveCustomPresetBtn.addEventListener('click', saveCustomPreset);
 
 function initializeCustomEqChart() {
     const ctx = document.getElementById('customEqChart').getContext('2d');
@@ -902,3 +894,9 @@ async function autoTuneCompressor() {
     }
 }
 
+
+// Initialize save preset button event listener
+const saveCustomPresetBtn = document.getElementById("saveCustomPresetBtn");
+if (saveCustomPresetBtn) {
+    saveCustomPresetBtn.addEventListener("click", saveCustomPreset);
+}
