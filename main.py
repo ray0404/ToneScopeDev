@@ -27,12 +27,15 @@ app.config['ALLOWED_EXTENSIONS'] = {'wav', 'mp3', 'flac', 'aiff', 'ogg', 'm4a'}
 
 CUSTOM_PRESETS_FILE = 'custom_presets.json'
 custom_presets = {}
+custom_presets_loaded = False
 
 def load_custom_presets():
-    global custom_presets
-    if os.path.exists(CUSTOM_PRESETS_FILE):
-        with open(CUSTOM_PRESETS_FILE, 'r') as f:
-            custom_presets = json.load(f)
+    global custom_presets, custom_presets_loaded
+    if not custom_presets_loaded:
+        if os.path.exists(CUSTOM_PRESETS_FILE):
+            with open(CUSTOM_PRESETS_FILE, 'r') as f:
+                custom_presets = json.load(f)
+        custom_presets_loaded = True
 
 
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -40,6 +43,10 @@ os.makedirs(app.config['PROCESSED_FOLDER'], exist_ok=True)
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+
+@app.route('/health')
+def health_check():
+    return {'status': 'ok'}, 200
 
 @app.route('/')
 def index():
@@ -225,6 +232,7 @@ def analyze_tonal_character(y, sr):
         return 'balanced'
 
 def apply_tonal_preset(y, sr, preset):
+    load_custom_presets()
     y_processed = y.copy()
     
     # Analyze the tonal character of the input audio
@@ -327,11 +335,13 @@ def normalize_loudness(y, sr, target_lufs=-23.0):
 
 @app.route('/get-custom-presets', methods=['GET'])
 def get_custom_presets():
+    load_custom_presets()
     return jsonify(custom_presets)
 
 @app.route('/save-custom-preset', methods=['POST'])
 def save_custom_preset():
     global custom_presets
+    load_custom_presets()
     data = request.json
     if not data or 'name' not in data or 'settings' not in data:
         return jsonify({'error': 'Missing preset name or settings'}), 400
@@ -769,8 +779,6 @@ def auto_optimize_compressor_settings(y, sr):
     settings['high']['release'] = 0.05
 
     return settings
-
-load_custom_presets()
 
 @socketio.on('live_preview')
 def handle_live_preview(data):
