@@ -50,7 +50,11 @@ def health_check():
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    try:
+        return render_template('index.html')
+    except Exception as e:
+        app.logger.error(f'Template error: {str(e)}')
+        return {'status': 'ok', 'message': 'ToneScope Audio Tool'}, 200
 
 @app.route('/upload', methods=['POST'])
 def upload_files():
