@@ -610,32 +610,50 @@ def compute_corrective_eq(ref_curve, target_curve):
     return corrective_curve
 
 def apply_eq_curve(y, sr, eq_curve, num_taps=1025):
+    """Apply custom EQ curve using a series of biquad peaking filters."""
     y_processed = y.copy()
     
     if len(eq_curve) == 0:
         return y_processed
-
-    # Create the frequency and gain arrays for firwin2
-    freqs = [p['freq'] for p in eq_curve]
-    gains_db = [p['gain_db'] for p in eq_curve]
     
-    # Add 0 Hz and Nyquist to the arrays
-    freqs = [0] + freqs + [sr / 2]
-    gains_db = [gains_db[0]] + gains_db + [gains_db[-1]] # Pad with edge values
-
-    # Convert gains from dB to linear
-    gains = 10.0 ** (np.array(gains_db) / 20.0)
-
-    # Normalize frequencies to [0, 1]
-    freqs = np.array(freqs) / (sr / 2)
-
-    # Design the FIR filter
-    taps = signal.firwin2(num_taps, freqs, gains)
-
-    # Apply the filter to each channel
+    # Apply processing to each channel
     for channel_idx in range(y.shape[0]):
-        y_processed[channel_idx] = signal.lfilter(taps, 1.0, y[channel_idx])
-
+        y_channel = y[channel_idx].copy()
+        
+        # Apply a peaking filter for each point in the EQ curve
+        for point in eq_curve:
+            freq = point.get('freq', 1000)
+            gain_db = point.get('gain_db', 0)
+            
+            # Skip if no gain change
+            if abs(gain_db) < 0.1:
+                continue
+                
+            # Set Q factor (bandwidth) - wider Q for smoother transitions
+            q = 0.7
+            
+            # Calculate filter coefficients for peaking EQ
+            w0 = 2 * np.pi * freq / sr
+            alpha = np.sin(w0) / (2 * q)
+            A = 10 ** (gain_db / 40)
+            
+            # Peaking EQ coefficients
+            b0 = 1 + alpha * A
+            b1 = -2 * np.cos(w0)
+            b2 = 1 - alpha * A
+            a0 = 1 + alpha / A
+            a1 = -2 * np.cos(w0)
+            a2 = 1 - alpha / A
+            
+            # Normalize coefficients
+            b = [b0 / a0, b1 / a0, b2 / a0]
+            a = [1, a1 / a0, a2 / a0]
+            
+            # Apply the filter
+            y_channel = signal.lfilter(b, a, y_channel)
+        
+        y_processed[channel_idx] = y_channel
+    
     return y_processed
 
 @app.route('/uploads/<filename>')
