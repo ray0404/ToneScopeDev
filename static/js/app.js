@@ -47,12 +47,21 @@ fileInput.addEventListener('change', (e) => {
 analyzeBtn.addEventListener('click', analyzeFiles);
 clearBtn.addEventListener('click', clearAllFiles);
 
-document.querySelectorAll('.btn-preset').forEach(btn => {
-    btn.addEventListener('click', () => {
-        const preset = btn.dataset.preset;
-        applyPreset(preset);
-    });
+// Process Audio button and toggle switches
+const processAudioBtn = document.getElementById('processAudioBtn');
+const tonalPresetToggle = document.getElementById('tonalPresetToggle');
+const customEqToggle = document.getElementById('customEqToggle');
+const multibandCompressorToggle = document.getElementById('multibandCompressorToggle');
+const stereoImagingToggle = document.getElementById('stereoImagingToggle');
+const autoTuneCompressorBtn = document.getElementById('autoTuneCompressorBtn');
+
+// Enable Process Audio button when track is selected
+trackSelector.addEventListener('change', () => {
+    processAudioBtn.disabled = !currentTrack;
 });
+
+// Process Audio button click handler
+processAudioBtn.addEventListener('click', processAudioWithEffects);
 
 trackSelector.addEventListener('change', (e) => {
     currentTrack = e.target.value;
@@ -445,11 +454,9 @@ function showLoading(show) {
 
 let customEqChart = null;
 
-const applyCustomEqBtn = document.getElementById('applyCustomEqBtn');
 const customPresetName = document.getElementById('customPresetName');
 const saveCustomPresetBtn = document.getElementById('saveCustomPresetBtn');
 
-applyCustomEqBtn.addEventListener('click', applyCustomEq);
 saveCustomPresetBtn.addEventListener('click', saveCustomPreset);
 
 function initializeCustomEqChart() {
@@ -523,26 +530,69 @@ function initializeCustomEqChart() {
     document.getElementById('customEqChart').style.height = '300px';
 }
 
-async function applyCustomEq() {
+// Unified Process Audio function - builds effects array from active toggles
+async function processAudioWithEffects() {
     if (!currentTrack) {
         alert('Please select a track first');
         return;
     }
 
-    const eqCurve = customEqChart.data.datasets[0].data.map(p => ({ freq: p.x, gain_db: p.y }));
+    const effects = [];
+
+    // Check tonal preset toggle
+    if (tonalPresetToggle.checked) {
+        const selectedPreset = document.querySelector('input[name="preset"]:checked');
+        if (selectedPreset) {
+            effects.push({
+                type: 'tonal_balance',
+                settings: { preset: selectedPreset.value }
+            });
+        }
+    }
+
+    // Check custom EQ toggle
+    if (customEqToggle.checked) {
+        const eqCurve = customEqChart.data.datasets[0].data.map(p => ({ freq: p.x, gain_db: p.y }));
+        effects.push({
+            type: 'tonal_balance',
+            settings: { preset: 'custom', eq_curve: eqCurve }
+        });
+    }
+
+    // Check multiband compressor toggle
+    if (multibandCompressorToggle.checked) {
+        const settings = getMultibandCompressorSettings();
+        effects.push({
+            type: 'multiband_compressor',
+            settings: settings
+        });
+    }
+
+    // Check stereo imaging toggle
+    if (stereoImagingToggle.checked) {
+        const width = parseFloat(stereoWidthSlider.value);
+        effects.push({
+            type: 'stereo_imaging',
+            settings: { width: width }
+        });
+    }
+
+    if (effects.length === 0) {
+        alert('Please enable at least one effect before processing');
+        return;
+    }
 
     showLoading(true);
 
     try {
-        const response = await fetch('/apply-preset', {
+        const response = await fetch('/process-audio', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
                 filename: currentTrack,
-                preset: 'custom', // Special name for custom preset
-                settings: eqCurve,
+                effects: effects,
                 ceiling: getLimiterCeiling()
             })
         });
@@ -550,15 +600,46 @@ async function applyCustomEq() {
         const data = await response.json();
 
         if (data.processed_file) {
-            displayProcessedFile(data.processed_file, 'Custom EQ applied');
+            displayProcessedFile(data.processed_file, 'Effects chain applied');
         } else if (data.error) {
             alert('Error: ' + data.error);
         }
     } catch (error) {
-        alert('Error applying custom EQ: ' + error.message);
+        alert('Error processing audio: ' + error.message);
     } finally {
         showLoading(false);
     }
+}
+
+// Helper function to get multiband compressor settings
+function getMultibandCompressorSettings() {
+    const settings = {
+        low: {
+            threshold: parseFloat(document.getElementById('low-threshold').value),
+            ratio: parseFloat(document.getElementById('low-ratio').value),
+            attack: parseFloat(document.getElementById('low-attack').value) / 1000,
+            release: parseFloat(document.getElementById('low-release').value) / 1000
+        },
+        mid: {
+            threshold: parseFloat(document.getElementById('mid-threshold').value),
+            ratio: parseFloat(document.getElementById('mid-ratio').value),
+            attack: parseFloat(document.getElementById('mid-attack').value) / 1000,
+            release: parseFloat(document.getElementById('mid-release').value) / 1000
+        },
+        high: {
+            threshold: parseFloat(document.getElementById('high-threshold').value),
+            ratio: parseFloat(document.getElementById('high-ratio').value),
+            attack: parseFloat(document.getElementById('high-attack').value) / 1000,
+            release: parseFloat(document.getElementById('high-release').value) / 1000
+        }
+    };
+
+    // Convert threshold from dB to linear
+    settings.low.threshold = 10 ** (settings.low.threshold / 20);
+    settings.mid.threshold = 10 ** (settings.mid.threshold / 20);
+    settings.high.threshold = 10 ** (settings.high.threshold / 20);
+
+    return settings;
 }
 
 async function saveCustomPreset() {
@@ -623,9 +704,8 @@ async function loadCustomPresets() {
 // Initialize
 loadCustomPresets();
 
-const applyMultibandCompressorBtn = document.getElementById('applyMultibandCompressorBtn');
-
-applyMultibandCompressorBtn.addEventListener('click', applyMultibandCompressor);
+// Auto-Tune Settings button for multiband compressor
+autoTuneCompressorBtn.addEventListener('click', autoTuneCompressor);
 
 // Update slider values
 document.querySelectorAll('.multiband-compressor-controls input[type="range"]').forEach(slider => {
@@ -702,15 +782,12 @@ async function applyMultibandCompressor() {
     }
 }
 
-const applyStereoImagingBtn = document.getElementById('applyStereoImagingBtn');
 const stereoWidthSlider = document.getElementById('stereo-width');
 const stereoWidthValue = document.getElementById('stereo-width-value');
 
 stereoWidthSlider.addEventListener('input', () => {
     stereoWidthValue.textContent = parseFloat(stereoWidthSlider.value).toFixed(1);
 });
-
-applyStereoImagingBtn.addEventListener('click', applyStereoImaging);
 
 async function applyStereoImaging() {
     if (!currentTrack) {
@@ -760,3 +837,68 @@ limiterCeilingSlider.addEventListener('input', () => {
 function getLimiterCeiling() {
     return parseFloat(limiterCeilingSlider.value);
 }
+
+// Auto-Tune Compressor Settings
+async function autoTuneCompressor() {
+    if (!currentTrack) {
+        alert("Please select a track first");
+        return;
+    }
+
+    showLoading(true);
+
+    try {
+        const response = await fetch("/auto-optimize-compressor", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                filename: currentTrack
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.error) {
+            alert("Error: " + data.error);
+        } else {
+            // Update low band settings
+            document.getElementById("low-threshold").value = data.low.threshold;
+            document.getElementById("low-threshold-value").textContent = `${data.low.threshold.toFixed(1)} dB`;
+            document.getElementById("low-ratio").value = data.low.ratio;
+            document.getElementById("low-ratio-value").textContent = `${data.low.ratio.toFixed(1)}:1`;
+            document.getElementById("low-attack").value = (data.low.attack * 1000).toFixed(0);
+            document.getElementById("low-attack-value").textContent = `${(data.low.attack * 1000).toFixed(0)} ms`;
+            document.getElementById("low-release").value = (data.low.release * 1000).toFixed(0);
+            document.getElementById("low-release-value").textContent = `${(data.low.release * 1000).toFixed(0)} ms`;
+
+            // Update mid band settings
+            document.getElementById("mid-threshold").value = data.mid.threshold;
+            document.getElementById("mid-threshold-value").textContent = `${data.mid.threshold.toFixed(1)} dB`;
+            document.getElementById("mid-ratio").value = data.mid.ratio;
+            document.getElementById("mid-ratio-value").textContent = `${data.mid.ratio.toFixed(1)}:1`;
+            document.getElementById("mid-attack").value = (data.mid.attack * 1000).toFixed(0);
+            document.getElementById("mid-attack-value").textContent = `${(data.mid.attack * 1000).toFixed(0)} ms`;
+            document.getElementById("mid-release").value = (data.mid.release * 1000).toFixed(0);
+            document.getElementById("mid-release-value").textContent = `${(data.mid.release * 1000).toFixed(0)} ms`;
+
+            // Update high band settings
+            document.getElementById("high-threshold").value = data.high.threshold;
+            document.getElementById("high-threshold-value").textContent = `${data.high.threshold.toFixed(1)} dB`;
+            document.getElementById("high-ratio").value = data.high.ratio;
+            document.getElementById("high-ratio-value").textContent = `${data.high.ratio.toFixed(1)}:1`;
+            document.getElementById("high-attack").value = (data.high.attack * 1000).toFixed(0);
+            document.getElementById("high-attack-value").textContent = `${(data.high.attack * 1000).toFixed(0)} ms`;
+            document.getElementById("high-release").value = (data.high.release * 1000).toFixed(0);
+            document.getElementById("high-release-value").textContent = `${(data.high.release * 1000).toFixed(0)} ms`;
+
+            alert("Compressor settings auto-tuned successfully!");
+        }
+    } catch (error) {
+        alert("Error auto-tuning compressor: " + error.message);
+    } finally {
+        showLoading(false);
+    }
+}
+
