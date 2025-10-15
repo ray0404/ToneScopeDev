@@ -4,9 +4,17 @@
 ToneScope is a professional web-based audio analysis and mastering tool built for music producers. It enables users to analyze album tracks for tonal balance, dynamic range, and stereo imaging, while also providing non-destructive audio processing capabilities for auditioning different mastering styles.
 
 ## Last Updated
-October 14, 2025
+October 15, 2025
 
 ## Recent Changes
+- **October 15, 2025**: Unified Processing Workflow & Auto-Tune Features
+  - Implemented unified /process-audio endpoint for sequential effect application
+  - Fixed apply_eq_curve to use biquad peaking filters instead of FIR filters
+  - Replaced individual "Apply" buttons with toggle switches for cleaner UX
+  - Added global "Process Audio" button that builds effects array from active toggles
+  - Integrated Auto-Tune Settings button for multiband compressor optimization
+  - Effects now applied in optimal order: tonal → compression → stereo imaging → normalization
+  
 - **October 14, 2025**: Production deployment fixes
   - Added Flask-CORS for cross-origin request support in production
   - Enhanced error handling for file uploads with detailed logging
@@ -65,13 +73,21 @@ October 14, 2025
 3. **Stereo Image**: Visual analysis of stereo width and L/R correlation for each track
 
 ### Module 2: Tonal Palette
-1. **One-Click Presets**: Four mastering presets for instant A/B comparison
+1. **One-Click Presets**: Four mastering presets with toggle-based workflow
    - ✨ Brighter: High-frequency boost for airy, modern sound
    - 🌙 Darker: High-frequency cut with low-end emphasis
    - 🔥 Vintage Warmth: Mid-range warmth with gentle top-end rolloff
    - ⚡ Modern Punch: Enhanced low-end and presence
-2. **Reference Matching**: Upload reference track and apply its EQ curve to selected track
-3. **Waveform Playback**: Visual waveform with play/pause controls for A/B testing
+2. **Custom EQ**: Interactive drag-and-drop EQ curve with biquad filter implementation
+3. **Reference Matching**: Upload reference track and apply its EQ curve to selected track
+4. **Waveform Playback**: Visual waveform with play/pause controls for A/B testing
+
+### Module 3: Advanced Processing
+1. **Multi-band Compressor**: Dynamic compression across low, mid, and high frequency bands
+   - Auto-Tune Settings: Automatically optimize compressor parameters based on audio analysis
+2. **Stereo Imaging**: Adjust stereo width from mono to ultra-wide
+3. **Peak Limiter**: Final ceiling control for optimal loudness
+4. **Unified Processing**: Global "Process Audio" button applies all enabled effects sequentially
 
 ## How It Works
 
@@ -83,12 +99,19 @@ October 14, 2025
 5. Stereo image analyzed using mid/side processing
 6. Results visualized with Chart.js and rendered in responsive tables
 
-### Tonal Processing
-1. User selects track from dropdown
-2. Presets apply custom EQ curves using biquad filters
-3. Reference matching extracts spectral envelope and applies to target
-4. Processed files saved as WAV for download
-5. Waveform visualization updates for immediate playback
+### Unified Processing Workflow
+1. User selects track and enables desired effects via toggle switches
+2. Effects configuration:
+   - **Tonal Preset/Custom EQ**: Radio buttons for preset selection or draggable EQ curve
+   - **Multi-band Compressor**: Individual controls per band with auto-tune capability
+   - **Stereo Imaging**: Width slider for stereo field adjustment
+3. "Process Audio" button triggers sequential effect application:
+   - Tonal balance (preset or custom EQ with biquad peaking filters)
+   - Multi-band compression (dynamic processing per frequency band)
+   - Stereo imaging (mid/side manipulation)
+   - Peak normalization (final ceiling limiter)
+4. Processed files saved as WAV with descriptive naming
+5. Waveform visualization updates for immediate playback and A/B comparison
 
 ## API Endpoints
 
