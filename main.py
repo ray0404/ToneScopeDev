@@ -381,28 +381,19 @@ def apply_multiband_compressor(y, sr, settings):
     low_mid_crossover = settings.get('low_mid_crossover', 300)
     mid_high_crossover = settings.get('mid_high_crossover', 3000)
 
-    # --- Create crossover filters ---
-    # Low-pass for the low band
+    # --- Create 4th order Linkwitz-Riley crossover filters ---
     b_low, a_low = signal.butter(2, low_mid_crossover / (sr / 2), btype='low')
-    # High-pass for the high band
     b_high, a_high = signal.butter(2, mid_high_crossover / (sr / 2), btype='high')
     
-    # Band-pass for the mid band
-    b_mid_low, a_mid_low = signal.butter(2, low_mid_crossover / (sr / 2), btype='high')
-    b_mid_high, a_mid_high = signal.butter(2, mid_high_crossover / (sr / 2), btype='low')
-
     y_processed = np.zeros_like(y)
 
     for channel_idx in range(y.shape[0]):
         y_channel = y[channel_idx]
 
         # --- Split into bands ---
-        low_band = signal.lfilter(b_low, a_low, y_channel)
-        
-        mid_band_tmp = signal.lfilter(b_mid_low, a_mid_low, y_channel)
-        mid_band = signal.lfilter(b_mid_high, a_mid_high, mid_band_tmp)
-        
-        high_band = signal.lfilter(b_high, a_high, y_channel)
+        low_band = signal.lfilter(b_low, a_low, signal.lfilter(b_low, a_low, y_channel))
+        high_band = signal.lfilter(b_high, a_high, signal.lfilter(b_high, a_high, y_channel))
+        mid_band = y_channel - low_band - high_band
 
         # --- Process each band ---
         bands = {'low': low_band, 'mid': mid_band, 'high': high_band}
@@ -415,24 +406,31 @@ def apply_multiband_compressor(y, sr, settings):
             attack = band_settings.get('attack', 0.01)
             release = band_settings.get('release', 0.1)
 
-            # Simple compressor logic
             if ratio > 1:
+                # RMS envelope detection
                 alpha_attack = np.exp(-1.0 / (sr * attack))
                 alpha_release = np.exp(-1.0 / (sr * release))
-
-                envelope = np.zeros_like(band_signal)
-                gain = np.ones_like(band_signal)
-
-                for i in range(1, len(band_signal)):
-                    # Peak detection
-                    envelope[i] = max(abs(band_signal[i]), envelope[i-1] * alpha_release)
                 
+                squared_signal = band_signal ** 2
+                
+                envelope = np.zeros_like(squared_signal)
+                for i in range(1, len(squared_signal)):
+                    if squared_signal[i] > envelope[i-1]:
+                        envelope[i] = alpha_attack * envelope[i-1] + (1 - alpha_attack) * squared_signal[i]
+                    else:
+                        envelope[i] = alpha_release * envelope[i-1] + (1 - alpha_release) * squared_signal[i]
+                
+                envelope = np.sqrt(envelope)
+
                 # Gain computation
+                gain = np.ones_like(band_signal)
                 for i in range(len(envelope)):
                     if envelope[i] > threshold:
                         gain[i] = (threshold / envelope[i]) ** (1 - 1/ratio)
 
-                # Apply gain
+                # Gain smoothing
+                gain = signal.lfilter([1.0], [1.0, -alpha_release], gain)
+
                 processed_bands[band_name] = band_signal * gain
             else:
                 processed_bands[band_name] = band_signal
