@@ -760,21 +760,27 @@ def auto_optimize_compressor_settings(y, sr):
     }
 
     # Low band
-    low_rms = np.sqrt(np.mean(low_band**2))
+    low_band_array = np.array(low_band) if not isinstance(low_band, np.ndarray) else low_band
+    low_band_flat = low_band_array.flatten()
+    low_rms = np.sqrt(np.mean(np.square(low_band_flat)))
     settings['low']['threshold'] = max(-30, 20 * np.log10(low_rms + 1e-10) + 10) # Heuristic
     settings['low']['ratio'] = 2.0 if crest_factor > 15 else 1.5
     settings['low']['attack'] = 0.02
     settings['low']['release'] = 0.2
 
     # Mid band
-    mid_rms = np.sqrt(np.mean(mid_band**2))
+    mid_band_array = np.array(mid_band) if not isinstance(mid_band, np.ndarray) else mid_band
+    mid_band_flat = mid_band_array.flatten()
+    mid_rms = np.sqrt(np.mean(np.square(mid_band_flat)))
     settings['mid']['threshold'] = max(-25, 20 * np.log10(mid_rms + 1e-10) + 5)
     settings['mid']['ratio'] = 2.5 if spectral_centroid > 2000 else 2.0
     settings['mid']['attack'] = 0.01
     settings['mid']['release'] = 0.1
 
     # High band
-    high_rms = np.sqrt(np.mean(high_band**2))
+    high_band_array = np.array(high_band) if not isinstance(high_band, np.ndarray) else high_band
+    high_band_flat = high_band_array.flatten()
+    high_rms = np.sqrt(np.mean(np.square(high_band_flat)))
     settings['high']['threshold'] = max(-20, 20 * np.log10(high_rms + 1e-10))
     settings['high']['ratio'] = 3.0 if spectral_centroid > 3000 else 2.5
     settings['high']['attack'] = 0.005
