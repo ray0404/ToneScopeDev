@@ -568,6 +568,15 @@ async function processAudioWithEffects() {
             settings: { width: width }
         });
     }
+    
+    // Check Volume Maximizer toggle and add it as the LAST effect
+    const volumeMaximizerSettings = getVolumeMaximizerSettings();
+    if (volumeMaximizerSettings) {
+        effects.push({
+            type: 'limiter',
+            settings: volumeMaximizerSettings
+        });
+    }
 
     if (effects.length === 0) {
         alert('Please enable at least one effect before processing');
@@ -828,6 +837,126 @@ limiterCeilingSlider.addEventListener('input', () => {
 // Helper function to get limiter ceiling
 function getLimiterCeiling() {
     return parseFloat(limiterCeilingSlider.value);
+}
+
+// Volume Maximizer Controls
+const volumeMaximizerToggle = document.getElementById('volumeMaximizerToggle');
+const limiterMode = document.getElementById('limiter-mode');
+const limiterThreshold = document.getElementById('limiter-threshold');
+const limiterThresholdValue = document.getElementById('limiter-threshold-value');
+const limiterAttack = document.getElementById('limiter-attack');
+const limiterAttackValue = document.getElementById('limiter-attack-value');
+const limiterRelease = document.getElementById('limiter-release');
+const limiterReleaseValue = document.getElementById('limiter-release-value');
+const limiterSaturation = document.getElementById('limiter-saturation');
+const limiterSaturationValue = document.getElementById('limiter-saturation-value');
+const smartLimitToggle = document.getElementById('smartLimitToggle');
+const maximizeLoudnessToggle = document.getElementById('maximizeLoudnessToggle');
+
+// Parameter groups for visibility control
+const thresholdGroup = document.getElementById('threshold-group');
+const attackGroup = document.getElementById('attack-group');
+const releaseGroup = document.getElementById('release-group');
+const saturationGroup = document.getElementById('saturation-group');
+
+// Update slider values on input
+limiterThreshold.addEventListener('input', () => {
+    limiterThresholdValue.textContent = `${parseFloat(limiterThreshold.value).toFixed(1)} dB`;
+});
+
+limiterAttack.addEventListener('input', () => {
+    limiterAttackValue.textContent = `${parseFloat(limiterAttack.value).toFixed(1)} ms`;
+});
+
+limiterRelease.addEventListener('input', () => {
+    limiterReleaseValue.textContent = `${parseFloat(limiterRelease.value)} ms`;
+});
+
+limiterSaturation.addEventListener('input', () => {
+    limiterSaturationValue.textContent = `${limiterSaturation.value}%`;
+});
+
+// Handle mode selection - show/hide relevant parameters
+limiterMode.addEventListener('change', () => {
+    const mode = limiterMode.value;
+    
+    // Hide saturation by default
+    saturationGroup.style.display = 'none';
+    
+    // Show saturation only for analog mode
+    if (mode === 'analog_saturated') {
+        saturationGroup.style.display = 'block';
+    }
+    
+    // Update default values based on mode
+    if (mode === 'digital_brickwall') {
+        limiterAttack.value = '0.1';
+        limiterRelease.value = '5';
+        limiterAttackValue.textContent = '0.1 ms';
+        limiterReleaseValue.textContent = '5 ms';
+    } else if (mode === 'soft_clipper') {
+        limiterAttack.value = '0';
+        limiterRelease.value = '10';
+        limiterAttackValue.textContent = '0.0 ms';
+        limiterReleaseValue.textContent = '10 ms';
+    } else if (mode === 'transparent_multiband') {
+        limiterAttack.value = '0.5';
+        limiterRelease.value = '20';
+        limiterAttackValue.textContent = '0.5 ms';
+        limiterReleaseValue.textContent = '20 ms';
+    } else if (mode === 'analog_saturated') {
+        limiterAttack.value = '1';
+        limiterRelease.value = '30';
+        limiterAttackValue.textContent = '1.0 ms';
+        limiterReleaseValue.textContent = '30 ms';
+    }
+});
+
+// Handle Smart Limit toggle - disable/enable manual controls
+smartLimitToggle.addEventListener('change', () => {
+    const isSmartEnabled = smartLimitToggle.checked;
+    
+    // Disable/enable parameter controls
+    limiterThreshold.disabled = isSmartEnabled;
+    limiterAttack.disabled = isSmartEnabled;
+    limiterRelease.disabled = isSmartEnabled;
+    
+    // Update visual state
+    if (isSmartEnabled) {
+        thresholdGroup.style.opacity = '0.5';
+        attackGroup.style.opacity = '0.5';
+        releaseGroup.style.opacity = '0.5';
+    } else {
+        thresholdGroup.style.opacity = '1';
+        attackGroup.style.opacity = '1';
+        releaseGroup.style.opacity = '1';
+    }
+});
+
+// Helper function to get Volume Maximizer settings
+function getVolumeMaximizerSettings() {
+    if (!volumeMaximizerToggle.checked) {
+        return null;
+    }
+    
+    const settings = {
+        mode: limiterMode.value,
+        parameters: {
+            ceiling: parseFloat(limiterCeilingSlider.value),
+            threshold: parseFloat(limiterThreshold.value),
+            attack: parseFloat(limiterAttack.value) / 1000, // Convert to seconds
+            release: parseFloat(limiterRelease.value) / 1000, // Convert to seconds
+        },
+        smart_limit: smartLimitToggle.checked,
+        maximize: maximizeLoudnessToggle.checked
+    };
+    
+    // Add saturation for analog mode
+    if (limiterMode.value === 'analog_saturated') {
+        settings.parameters.saturation = parseFloat(limiterSaturation.value) / 100; // Convert to 0-1 range
+    }
+    
+    return settings;
 }
 
 // Auto-Tune Compressor Settings

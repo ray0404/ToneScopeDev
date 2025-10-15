@@ -335,6 +335,254 @@ def normalize_loudness(y, sr, target_lufs=-23.0):
     
     return y * gain_linear
 
+def calculate_crest_factor(y):
+    """Calculate crest factor (peak to RMS ratio) in dB"""
+    peak = np.max(np.abs(y))
+    rms = np.sqrt(np.mean(y ** 2))
+    if rms > 1e-10:
+        crest_factor_db = 20 * np.log10(peak / rms)
+        return crest_factor_db
+    return 0
+
+def analyze_spectrum_for_limiting(y, sr):
+    """Analyze audio spectrum to determine optimal limiting parameters"""
+    # Calculate spectral centroid for brightness
+    if y.ndim > 1:
+        y_mono = librosa.to_mono(y)
+    else:
+        y_mono = y
+    
+    spectral_centroid = librosa.feature.spectral_centroid(y=y_mono, sr=sr)[0]
+    mean_centroid = np.mean(spectral_centroid)
+    
+    # Calculate crest factor
+    crest_factor = calculate_crest_factor(y_mono)
+    
+    # Determine optimal parameters based on analysis
+    if mean_centroid > 3000:  # Bright material
+        suggested_attack = 0.0003  # Faster attack for bright content
+        suggested_release = 0.005  # Faster release
+    elif mean_centroid < 1000:  # Bass-heavy material
+        suggested_attack = 0.001  # Slower attack for bass
+        suggested_release = 0.030  # Slower release
+    else:  # Balanced material
+        suggested_attack = 0.0005
+        suggested_release = 0.010
+    
+    # Adjust threshold based on crest factor
+    if crest_factor > 15:  # Very dynamic
+        suggested_threshold = -12
+    elif crest_factor < 8:  # Already compressed
+        suggested_threshold = -3
+    else:
+        suggested_threshold = -6
+    
+    return {
+        'threshold': suggested_threshold,
+        'attack': suggested_attack,
+        'release': suggested_release
+    }
+
+def apply_limiter(y, sr, settings):
+    """Apply limiter with different modes and smart features"""
+    mode = settings.get('mode', 'digital_brickwall')
+    params = settings.get('parameters', {})
+    smart_limit = settings.get('smart_limit', False)
+    maximize = settings.get('maximize', False)
+    
+    # Get ceiling (always respected)
+    ceiling = params.get('ceiling', -0.1)
+    
+    # Apply maximize if enabled (LUFS normalization before limiting)
+    if maximize:
+        # Target modern loudness (-9 LUFS)
+        y = normalize_loudness(y, sr, target_lufs=-9.0)
+    
+    # Apply smart limit analysis if enabled
+    if smart_limit:
+        smart_params = analyze_spectrum_for_limiting(y, sr)
+        # Override manual parameters with smart ones, but keep user's ceiling
+        params['threshold'] = smart_params['threshold']
+        params['attack'] = smart_params['attack']
+        params['release'] = smart_params['release']
+    
+    # Get limiting parameters
+    threshold_db = params.get('threshold', -6)
+    attack = params.get('attack', 0.001)
+    release = params.get('release', 0.010)
+    saturation = params.get('saturation', 0.3)  # For analog mode
+    
+    # Convert threshold to linear
+    threshold_linear = 10 ** (threshold_db / 20)
+    
+    # Process based on mode
+    if mode == 'digital_brickwall':
+        # Fast attack/release, high ratio brickwall limiting
+        y = apply_brickwall_limiter(y, sr, threshold_linear, 0.0001, 0.005, ceiling)
+        
+    elif mode == 'soft_clipper':
+        # Gentle peak rounding with tanh
+        y = apply_soft_clipper(y, threshold_linear, ceiling)
+        
+    elif mode == 'transparent_multiband':
+        # Multiband limiting with separate limiters per band
+        y = apply_multiband_limiter(y, sr, threshold_linear, attack, release, ceiling)
+        
+    elif mode == 'analog_saturated':
+        # Combine soft clipping with harmonic saturation
+        y = apply_analog_saturated_limiter(y, sr, threshold_linear, attack, release, saturation, ceiling)
+    
+    # Final safety limiting to ensure ceiling is respected
+    y = peak_normalize(y, target_dbfs=ceiling)
+    
+    return y
+
+def apply_brickwall_limiter(y, sr, threshold, attack, release, ceiling_db):
+    """Digital brickwall limiter with very fast attack/release"""
+    y_processed = np.zeros_like(y)
+    
+    # Very high ratio for brickwall
+    ratio = 100
+    
+    for channel_idx in range(y.shape[0]):
+        y_channel = y[channel_idx]
+        
+        # Envelope follower with very fast response
+        alpha_attack = np.exp(-1.0 / (sr * attack))
+        alpha_release = np.exp(-1.0 / (sr * release))
+        
+        envelope = np.zeros_like(y_channel)
+        for i in range(1, len(y_channel)):
+            sample_abs = abs(y_channel[i])
+            if sample_abs > envelope[i-1]:
+                envelope[i] = alpha_attack * envelope[i-1] + (1 - alpha_attack) * sample_abs
+            else:
+                envelope[i] = alpha_release * envelope[i-1] + (1 - alpha_release) * sample_abs
+        
+        # Apply gain reduction
+        gain = np.ones_like(y_channel)
+        for i in range(len(envelope)):
+            if envelope[i] > threshold:
+                # Brickwall limiting with high ratio
+                gain[i] = threshold / envelope[i]
+        
+        # Smooth the gain slightly to reduce artifacts
+        gain = signal.lfilter([0.2, 0.6, 0.2], [1.0], gain)
+        
+        y_processed[channel_idx] = y_channel * gain
+    
+    return y_processed
+
+def apply_soft_clipper(y, threshold, ceiling_db):
+    """Soft clipper using tanh for gentle peak rounding"""
+    y_processed = np.zeros_like(y)
+    
+    for channel_idx in range(y.shape[0]):
+        y_channel = y[channel_idx]
+        
+        # Apply soft clipping with tanh
+        # Scale signal so threshold corresponds to knee point
+        scale_factor = 1.0 / threshold
+        y_scaled = y_channel * scale_factor
+        
+        # Apply tanh soft clipping
+        y_clipped = np.tanh(y_scaled * 0.7) / 0.7  # 0.7 factor for smoother knee
+        
+        # Rescale back
+        y_processed[channel_idx] = y_clipped / scale_factor
+    
+    return y_processed
+
+def apply_multiband_limiter(y, sr, threshold, attack, release, ceiling_db):
+    """Transparent multiband limiter using frequency band separation"""
+    # Use same crossover frequencies as compressor
+    low_mid_crossover = 300
+    mid_high_crossover = 3000
+    
+    # Create crossover filters (4th order Linkwitz-Riley)
+    b_low, a_low = signal.butter(2, low_mid_crossover / (sr / 2), btype='low')
+    b_high, a_high = signal.butter(2, mid_high_crossover / (sr / 2), btype='high')
+    
+    y_processed = np.zeros_like(y)
+    
+    for channel_idx in range(y.shape[0]):
+        y_channel = y[channel_idx]
+        
+        # Split into bands
+        low_band = signal.lfilter(b_low, a_low, signal.lfilter(b_low, a_low, y_channel))
+        high_band = signal.lfilter(b_high, a_high, signal.lfilter(b_high, a_high, y_channel))
+        mid_band = y_channel - low_band - high_band
+        
+        # Apply brickwall limiting to each band independently
+        low_limited = apply_brickwall_limiter(
+            np.array(low_band).reshape(1, -1), sr, threshold, attack * 2, release * 2, ceiling_db
+        )[0]
+        
+        mid_limited = apply_brickwall_limiter(
+            np.array(mid_band).reshape(1, -1), sr, threshold, attack, release, ceiling_db
+        )[0]
+        
+        high_limited = apply_brickwall_limiter(
+            np.array(high_band).reshape(1, -1), sr, threshold, attack * 0.5, release * 0.5, ceiling_db
+        )[0]
+        
+        # Recombine bands
+        y_processed[channel_idx] = low_limited + mid_limited + high_limited
+    
+    return y_processed
+
+def apply_analog_saturated_limiter(y, sr, threshold, attack, release, saturation, ceiling_db):
+    """Analog-style limiter with harmonic saturation"""
+    y_processed = np.zeros_like(y)
+    
+    for channel_idx in range(y.shape[0]):
+        y_channel = y[channel_idx]
+        
+        # First apply soft limiting with slower dynamics
+        alpha_attack = np.exp(-1.0 / (sr * attack))
+        alpha_release = np.exp(-1.0 / (sr * release))
+        
+        envelope = np.zeros_like(y_channel)
+        for i in range(1, len(y_channel)):
+            sample_abs = abs(y_channel[i])
+            if sample_abs > envelope[i-1]:
+                envelope[i] = alpha_attack * envelope[i-1] + (1 - alpha_attack) * sample_abs
+            else:
+                envelope[i] = alpha_release * envelope[i-1] + (1 - alpha_release) * sample_abs
+        
+        # Apply softer ratio (more like vintage limiters)
+        gain = np.ones_like(y_channel)
+        ratio = 8  # Softer ratio for analog character
+        
+        for i in range(len(envelope)):
+            if envelope[i] > threshold:
+                gain_reduction = (envelope[i] - threshold) * (1 - 1/ratio)
+                gain[i] = 10 ** (-gain_reduction / 20)
+        
+        # Smooth gain changes
+        gain = signal.lfilter([0.1, 0.2, 0.4, 0.2, 0.1], [1.0], gain)
+        
+        # Apply gain reduction
+        y_limited = y_channel * gain
+        
+        # Add harmonic saturation (wave shaping)
+        if saturation > 0:
+            # Create harmonics through polynomial wave shaping
+            y_saturated = y_limited.copy()
+            
+            # Add subtle even harmonics (warmth)
+            y_saturated += saturation * 0.05 * (y_limited ** 2) * np.sign(y_limited)
+            
+            # Add odd harmonics (presence)
+            y_saturated += saturation * 0.02 * (y_limited ** 3)
+            
+            # Blend with original
+            y_processed[channel_idx] = (1 - saturation * 0.3) * y_limited + saturation * 0.3 * y_saturated
+        else:
+            y_processed[channel_idx] = y_limited
+    
+    return y_processed
+
 @app.route('/get-custom-presets', methods=['GET'])
 def get_custom_presets():
     load_custom_presets()
@@ -710,9 +958,14 @@ def process_audio():
             elif effect_type == 'stereo_imaging':
                 width = settings.get('width', 1.0)
                 y_processed = apply_stereo_imaging(y_processed, sr, width)
+            elif effect_type == 'limiter':
+                y_processed = apply_limiter(y_processed, sr, settings)
 
-        ceiling = data.get('ceiling', -0.1)
-        y_processed = peak_normalize(y_processed, target_dbfs=ceiling)
+        # Only apply peak normalization if no limiter was used (limiter handles its own ceiling)
+        has_limiter = any(effect.get('type') == 'limiter' for effect in effects)
+        if not has_limiter:
+            ceiling = data.get('ceiling', -0.1)
+            y_processed = peak_normalize(y_processed, target_dbfs=ceiling)
 
         output_filename = f"{os.path.splitext(filename)[0]}_processed.wav"
         output_path = os.path.join(app.config['PROCESSED_FOLDER'], output_filename)
