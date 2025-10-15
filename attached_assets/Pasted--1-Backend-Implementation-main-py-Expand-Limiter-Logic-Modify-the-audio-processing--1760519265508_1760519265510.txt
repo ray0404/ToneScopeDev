@@ -1,0 +1,30 @@
+
+
+**1. Backend Implementation (main.py):**
+
+* **Expand Limiter Logic:** Modify the audio processing chain to accept a new `limiter` effect type. This effect should have settings for `mode`, `parameters`, and a boolean `maximize`.
+* **Implement Limiter Modes:**
+    * **`digital_brickwall`**: Implement a very fast attack/release limiter with a high ratio to transparently prevent any signal from exceeding the ceiling.
+    * **`soft_clipper`**: Use a function like `np.tanh` to gently round off peaks, introducing subtle saturation when pushed.
+    * **`transparent_multiband`**: Split the audio signal into 3 bands (low, mid, high) using the crossover logic from the multi-band compressor. Apply a separate brickwall limiter to each band before summing them back together.
+    * **`analog_saturated`**: Combine soft clipping with a subtle wave-shaping function to add odd/even harmonics for analog character.
+* **Create "Smart Limit" Feature:**
+    * Add logic that, when a `smart_limit: true` parameter is received, analyzes the incoming audio *at the end of the effects chain*.
+    * Based on the audio's crest factor and spectral content, automatically determine and apply optimal `threshold`, `attack`, and `release` settings for the selected limiter mode. The user-defined `ceiling` and `makeup_gain` should still be respected.
+* **Implement Maximize/Normalize Toggle:**
+    * If `maximize: true`, first use `pyloudnorm` to bring the audio to a target integrated loudness (e.g., -9 LUFS) and then apply the selected limiter to control peaks at the ceiling.
+    * If `maximize: false`, simply peak-normalize the audio to the specified ceiling as it does now.
+
+**2. Frontend Implementation (index.html & app.js):**
+
+* **Overhaul the Limiter UI (`index.html`):**
+    * Rename the section to "Volume Maximizer."
+    * Add a dropdown menu to select the limiter `mode` (`Digital Brickwall`, `Soft Clipper`, `Transparent`, `Analog`).
+    * Add sliders for relevant parameters like `Threshold`, `Attack`, `Release`, and `Saturation`. Use JavaScript to show/hide sliders based on the selected mode.
+    * Add a toggle switch for "Smart Limit."
+    * Add a toggle switch for "Maximize Loudness."
+* **Update Frontend Logic (`app.js`):**
+    * When the global "Process Audio" button is clicked, gather all settings from the new Volume Maximizer UI.
+    * Construct the `limiter` object with its `mode`, `parameters`, and `maximize` boolean.
+    * Append this object to the end of the `effects` array before sending it to the `/process-audio` endpoint.
+    * When "Smart Limit" is toggled on, disable the `Threshold`, `Attack`, and `Release` sliders in the UI.
