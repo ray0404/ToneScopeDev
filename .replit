@@ -35,6 +35,10 @@ localPort = 5000
 externalPort = 80
 
 [[ports]]
+localPort = 33895
+externalPort = 3003
+
+[[ports]]
 localPort = 41839
 externalPort = 3002
 
@@ -48,5 +52,5 @@ externalPort = 3000
 
 [deployment]
 deploymentTarget = "autoscale"
-run = ["gunicorn", "--worker-class", "eventlet", "--bind", "0.0.0.0:5000", "--timeout", "300", "--workers", "2", "main:app"]
+run = ["gunicorn", "--worker-class", "eventlet", "--bind", "0.0.0.0:5000", "--reuse-port", "--timeout", "300", "--workers", "2", "main:app"]
 healthCheck = { path = "/health", port = 5000 }
