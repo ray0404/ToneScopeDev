@@ -1,6 +1,6 @@
 # ToneScope - Audio Analysis & Mastering Tool
 
-![ToneScope Screenshot](attached_assets/Screenshot_20251015_014154_Chrome_1760514137470.jpg)
+![ToneScope Screenshot](attached_assets/ScreenshotTSD.jpg)
 
 **ToneScope** is a professional, web-based audio analysis and mastering tool designed for music producers, audio engineers, and hobbyists. It provides a comprehensive suite of tools to analyze and process audio files, helping you achieve a polished and professional sound.
 
